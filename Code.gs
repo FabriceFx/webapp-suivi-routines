@@ -18,51 +18,9 @@ function doGet() {
 
 // --- PARTIE 1 : SAISIE ---
 
-/**
- * Récupère la liste des routines depuis l'onglet "Config".
- * * @author Fabrice Faucheux
- * @return {string[]} Un tableau contenant les noms des routines.
- */
-function recupererListeRoutines() {
-  try {
-    const classeur = SpreadsheetApp.getActiveSpreadsheet();
-    const feuille = classeur.getSheetByName("Config");
-    const derniereLigne = feuille.getLastRow();
 
-    if (derniereLigne < 2) return [];
 
-    // Récupération en lot (batch) de la colonne A
-    const valeurs = feuille.getRange(2, 1, derniereLigne - 1, 1).getValues();
-    
-    // Aplatissement du tableau 2D en 1D
-    return valeurs.flat();
 
-  } catch (erreur) {
-    console.error('Erreur dans recupererListeRoutines :', erreur);
-    throw new Error("Impossible de récupérer la liste des routines.");
-  }
-}
-
-/**
- * Enregistre une nouvelle routine dans l'onglet "Logs" avec la date actuelle.
- * * @author Fabrice Faucheux
- * @param {string} nomRoutine - Le nom de la routine à logger.
- * @return {string} Message de confirmation.
- */
-function sauvegarderRoutine(nomRoutine) {
-  try {
-    const feuille = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Logs");
-    const dateActuelle = new Date();
-    
-    feuille.appendRow([dateActuelle, nomRoutine]);
-    
-    return `✅ ${nomRoutine} enregistré avec succès !`;
-
-  } catch (erreur) {
-    console.error('Erreur dans sauvegarderRoutine :', erreur);
-    throw new Error(`Erreur lors de la sauvegarde de : ${nomRoutine}`);
-  }
-}
 
 /**
  * Supprime la dernière entrée enregistrée dans l'onglet "Logs".
@@ -92,89 +50,161 @@ function supprimerDerniereEntree() {
 
 // --- PARTIE 2 : ANALYSE DES DONNÉES (Tableau + Graphiques) ---
 
+
+
 /**
- * Génère un rapport mensuel des routines effectuées.
- * Trie les données par routine et calcule l'activité journalière.
+ * Enregistre une nouvelle routine dans l'onglet "Logs".
+ * Gère désormais une date personnalisée pour la saisie rétroactive.
+ *
+ * @author Fabrice Faucheux
+ * @param {string} nomRoutine - Le nom de la routine à logger.
+ * @param {string} [dateIso] - (Optionnel) La date choisie au format "YYYY-MM-DD".
+ * @return {string} Message de confirmation.
+ */
+function sauvegarderRoutine(nomRoutine, dateIso) {
+  try {
+    const feuille = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Logs");
+    let dateLog;
+
+    if (dateIso) {
+      // Si une date est fournie (Saisie rétroactive), on l'utilise.
+      // On instancie la date et on fixe l'heure à midi pour éviter les décalages de fuseau horaire
+      // qui pourraient basculer la date au jour précédent ou suivant selon l'affichage.
+      dateLog = new Date(dateIso);
+      dateLog.setHours(12, 0, 0, 0); 
+    } else {
+      // Sinon, on utilise l'horodatage exact de l'instant présent
+      dateLog = new Date();
+    }
+    
+    feuille.appendRow([dateLog, nomRoutine]);
+    
+    // Formatage de la date pour le message de retour (plus convivial)
+    const optionsDate = { weekday: 'long', day: 'numeric', month: 'long' };
+    const dateLisible = dateLog.toLocaleDateString('fr-FR', optionsDate);
+
+    return `✅ ${nomRoutine} enregistré pour le ${dateLisible} !`;
+
+  } catch (erreur) {
+    console.error('Erreur dans sauvegarderRoutine :', erreur);
+    throw new Error(`Erreur lors de la sauvegarde de : ${nomRoutine}`);
+  }
+}
+
+/**
+ * Récupère la configuration complète (Nom + Unité) pour l'interface de saisie.
  * * @author Fabrice Faucheux
- * @param {number} annee - L'année cible (ex: 2024).
- * @param {number} mois - Le mois cible (1 pour Janvier, 12 pour Décembre).
- * @return {Object} Objet contenant les routines, les données triées, les stats journalières et le nombre de jours.
+ * @return {Object[]} Liste d'objets {nom, unite}.
+ */
+function recupererListeRoutines() {
+  try {
+    const feuille = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Config");
+    const derniereLigne = feuille.getLastRow();
+    if (derniereLigne < 2) return [];
+
+    // On récupère A (Nom), B (Objectif - ignoré ici), C (Unité)
+    // On lit 3 colonnes pour être sûr d'avoir l'unité
+    const valeurs = feuille.getRange(2, 1, derniereLigne - 1, 3).getValues();
+    
+    // On retourne un objet structuré pour le frontend
+    return valeurs.map(ligne => ({
+      nom: ligne[0],
+      unite: ligne[2] ? ligne[2].toString() : "" // Colonne C
+    })).filter(r => r.nom !== "");
+
+  } catch (erreur) {
+    console.error('Erreur recupererListeRoutines :', erreur);
+    throw new Error("Impossible de récupérer les routines.");
+  }
+}
+
+/**
+ * Enregistre une routine avec sa valeur quantitative optionnelle.
+ */
+function sauvegarderRoutine(nomRoutine, dateIso, valeur) {
+  try {
+    const feuille = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Logs");
+    let dateLog = dateIso ? new Date(dateIso) : new Date();
+    dateLog.setHours(12, 0, 0, 0);
+
+    // On stocke : Date | Nom | Valeur (ou vide)
+    feuille.appendRow([dateLog, nomRoutine, valeur || ""]);
+    
+    const messageValeur = valeur ? ` (${valeur})` : "";
+    return `✅ ${nomRoutine}${messageValeur} enregistré !`;
+  } catch (erreur) {
+    console.error('Erreur sauvegarderRoutine :', erreur);
+    throw new Error(`Erreur sauvegarde : ${nomRoutine}`);
+  }
+}
+
+/**
+ * Génère le rapport mensuel avec gestion des valeurs quantitatives.
  */
 function genererRapportMensuel(annee, mois) {
   try {
     const classeur = SpreadsheetApp.getActiveSpreadsheet();
-    const feuilleLogs = classeur.getSheetByName("Logs");
-    const feuilleConfig = classeur.getSheetByName("Config");
+    const logsSheet = classeur.getSheetByName("Logs");
+    const configSheet = classeur.getSheetByName("Config");
 
-    // 1. Récupération des routines configurées
-    let toutesRoutines = [];
-    const derniereLigneConfig = feuilleConfig.getLastRow();
-    
-    if (derniereLigneConfig > 1) {
-      toutesRoutines = feuilleConfig.getRange(2, 1, derniereLigneConfig - 1, 1)
-        .getValues()
-        .flat();
+    // 1. Config : Récupération Nom (A), Objectif (B), Unité (C)
+    let configRoutines = [];
+    const lastRowConfig = configSheet.getLastRow();
+    if (lastRowConfig > 1) {
+      configRoutines = configSheet.getRange(2, 1, lastRowConfig - 1, 3).getValues()
+        .map(ligne => ({
+          nom: ligne[0],
+          objectif: ligne[1] || 0, // Peut être une fréquence OU une cible journalière
+          unite: ligne[2] || ""    // Détermine le mode d'affichage
+        }))
+        .filter(r => r.nom !== "");
     }
 
-    // 2. Récupération des logs
+    // 2. Logs : Date (A), Nom (B), Valeur (C)
     let logs = [];
-    const derniereLigneLogs = feuilleLogs.getLastRow();
-
-    if (derniereLigneLogs > 1) {
-      logs = feuilleLogs.getRange(2, 1, derniereLigneLogs - 1, 2).getValues();
+    const lastRowLogs = logsSheet.getLastRow();
+    if (lastRowLogs > 1) {
+      // On lit 3 colonnes
+      logs = logsSheet.getRange(2, 1, lastRowLogs - 1, 3).getValues();
     }
 
-    // 3. Initialisation des structures de données
-    const rapport = {};
+    // 3. Traitement
+    const rapport = {}; // Format : { "Sport": { 1: 10, 5: 5 } } -> jour: valeur
     const statsJournalieres = {};
 
-    // Initialisation des tableaux vides pour chaque routine connue
-    toutesRoutines.forEach(routine => {
-      rapport[routine] = []; 
-    });
+    // Init
+    configRoutines.forEach(c => rapport[c.nom] = {});
 
-    // 4. Traitement des données via méthodes itératives modernes
-    // L'index du mois en JS est 0-11, donc on fait (mois - 1)
-    const moisIndexJs = mois - 1;
+    const moisIndex = mois - 1;
 
     logs.forEach(ligne => {
-      // Déstructuration pour plus de clarté
-      const [dateLogBrute, nomRoutine] = ligne;
-      const dateLog = new Date(dateLogBrute);
+      const [dateBrute, nom, valeurBrute] = ligne;
+      const dateLog = new Date(dateBrute);
 
-      // Vérification stricte de l'année et du mois
-      if (dateLog.getFullYear() === annee && dateLog.getMonth() === moisIndexJs) {
+      if (dateLog.getFullYear() === annee && dateLog.getMonth() === moisIndex) {
         const jour = dateLog.getDate();
+        
+        // Initialisation si routine archivée
+        if (!rapport[nom]) rapport[nom] = {};
 
-        // Remplissage du rapport par routine (si la routine existe encore dans la config ou le rapport)
-        if (rapport.hasOwnProperty(nomRoutine)) {
-          rapport[nomRoutine].push(jour);
-        } else {
-          // Gestion des routines archivées ou supprimées de la config mais présentes dans les logs
-          rapport[nomRoutine] = [jour];
-          if (!toutesRoutines.includes(nomRoutine)) {
-            toutesRoutines.push(nomRoutine);
-          }
-        }
-
-        // Calcul du total par jour (Opérateur ternaire ou logique OR pour l'incrémentation)
+        // On additionne les valeurs du même jour (ex: 2 sessions de sport)
+        // Si pas de valeur (booléen), on compte 1
+        const valAjoutee = (valeurBrute && !isNaN(valeurBrute)) ? Number(valeurBrute) : 1;
+        
+        rapport[nom][jour] = (rapport[nom][jour] || 0) + valAjoutee;
         statsJournalieres[jour] = (statsJournalieres[jour] || 0) + 1;
       }
     });
 
-    // Calcul du nombre de jours dans le mois
-    // Astuce : le jour 0 du mois suivant renvoie le dernier jour du mois courant
-    const joursDansLeMois = new Date(annee, mois, 0).getDate();
-
     return {
-      routines: toutesRoutines,
-      donnees: rapport,           // ex: { "Sport": [1, 3, 5], "Lecture": [2, 4] }
-      statsJournalieres: statsJournalieres, // ex: { "1": 5, "2": 3 }
-      joursDansLeMois: joursDansLeMois
+      routines: configRoutines,
+      donnees: rapport, // Structure modifiée : dictionnaire {jour: valeur}
+      statsJournalieres: statsJournalieres,
+      joursDansLeMois: new Date(annee, mois, 0).getDate()
     };
 
-  } catch (erreur) {
-    console.error('Erreur dans genererRapportMensuel :', erreur);
-    throw new Error("Impossible de générer le rapport mensuel.");
+  } catch (e) {
+    console.error(e);
+    throw new Error("Erreur génération rapport.");
   }
 }
