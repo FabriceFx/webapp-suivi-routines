@@ -54,6 +54,3 @@ Base de données brute. Ne pas modifier manuellement sauf si nécessaire.
     * *Exécuter en tant que* : `Moi`.
     * *Qui a accès* : `Moi uniquement` (pour un usage personnel).
 7.  Validez et utilisez l'URL fournie.
-
----
-**License** : MIT
