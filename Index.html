@@ -22,7 +22,7 @@
         padding: 5px 2px !important;
       }
       .matrix-table th.routine-col { 
-        min-width: 120px; 
+        min-width: 140px; /* Un peu plus large pour afficher les infos */
         text-align: left; 
         position: sticky; 
         left: 0; 
@@ -37,9 +37,13 @@
       .day-num { display: block; font-size: 0.9rem; font-weight: bold; }
       
       /* Indicateurs visuels */
-      .weekend-col { background-color: #f8f9fa; }
+      .weekend-col { background-color: #f8f9fa; } /* Sera écrasé par la couleur heatmap si rempli */
       .weekend-header { color: #e74c3c; } 
       .check-done { color: #2ecc71; font-weight: bold; font-size: 1.1rem; }
+      
+      /* NOUVEAU : Styles Heatmap & Données */
+      .routine-meta { font-size: 0.7rem; color: #999; display: block; margin-top: 2px; }
+      .cell-value { font-size: 0.75rem; font-weight: bold; color: #1e5f35; } /* Vert foncé pour le texte sur fond clair/moyen */
       
       .chart-box { height: 250px; position: relative; }
     </style>
@@ -57,9 +61,26 @@
         <div class="tab-pane fade show active" id="saisie">
           <div class="card p-4" style="max-width: 500px; margin: auto;">
             <h4 class="text-center mb-4 text-primary">Loguer une activité</h4>
-            <select id="selectRoutine" class="form-select form-select-lg mb-3">
-              <option selected disabled>Chargement...</option>
-            </select>
+            
+            <div class="mb-3">
+              <label for="dateSaisie" class="form-label text-muted small">Date de réalisation</label>
+              <input type="date" id="dateSaisie" class="form-control form-control-lg">
+            </div>
+
+            <div class="mb-3">
+               <select id="selectRoutine" class="form-select form-select-lg">
+                 <option selected disabled>Chargement...</option>
+               </select>
+            </div>
+
+            <div id="divQuantite" class="mb-4 d-none bg-light p-3 rounded">
+              <label id="lblQuantite" class="form-label text-muted small fw-bold">Quantité</label>
+              <div class="input-group input-group-lg">
+                <input type="number" id="inputValeur" class="form-control" step="0.1" placeholder="Ex: 10">
+                <span class="input-group-text" id="addonUnite">unit</span>
+              </div>
+            </div>
+            
             <button class="btn btn-primary btn-lg w-100 mb-2" id="btnValider">Valider</button>
             <button class="btn btn-outline-danger btn-sm w-100" id="btnAnnuler">Annuler la dernière</button>
             <div id="msgBox" class="alert mt-3 d-none text-center"></div>
@@ -100,7 +121,7 @@
           </div>
 
           <div class="card p-3 mt-3">
-            <h5 class="mb-3">Détail journalier</h5>
+            <h5 class="mb-3">Détail journalier (Heatmap)</h5>
             <div class="table-responsive">
               <table class="table table-bordered table-sm matrix-table" id="matrixTable">
                 <thead></thead>
@@ -114,203 +135,239 @@
     </div>
 
     <script>
-      // Stockage global des instances de graphiques pour pouvoir les détruire/recréer
+      // Stockage global
+      let listeRoutinesGlobal = []; 
       const charts = { pie: null, line: null }; 
 
-      // Initialisation au chargement de la page
+      // Initialisation
       window.addEventListener('load', () => {
         initialiserSelecteurs();
         chargerListeRoutines();
         
-        // Écouteurs d'événements (Event Listeners)
+        // Date par défaut : Aujourd'hui
+        document.getElementById('dateSaisie').value = new Date().toISOString().split('T')[0];
+        
+        // Listeners
         document.getElementById('btnValider').addEventListener('click', gererSauvegarde);
         document.getElementById('btnAnnuler').addEventListener('click', gererAnnulation);
         document.getElementById('selectAnnee').addEventListener('change', chargerRapport);
         document.getElementById('selectMois').addEventListener('change', chargerRapport);
+        
+        // NOUVEAU : Détection changement routine pour afficher l'input quantité
+        document.getElementById('selectRoutine').addEventListener('change', mettreAJourInterfaceSaisie);
       });
 
-      /**
-       * Initialise les listes déroulantes Année et Mois
-       */
+      // --- SETUP UI ---
+
       const initialiserSelecteurs = () => {
         const selectAnnee = document.getElementById('selectAnnee');
         const anneeActuelle = new Date().getFullYear();
-        
-        // Plage : Année actuelle - 1 à Année actuelle + 2
         for (let i = anneeActuelle - 1; i <= anneeActuelle + 2; i++) {
           const opt = document.createElement('option');
-          opt.value = i; 
-          opt.text = i;
+          opt.value = i; opt.text = i;
           if (i === anneeActuelle) opt.selected = true;
           selectAnnee.add(opt);
         }
-        
-        // Mois actuel par défaut
         document.getElementById('selectMois').value = new Date().getMonth() + 1;
       };
 
-      /**
-       * Appelle le serveur pour récupérer la liste des routines (Config)
-       */
       const chargerListeRoutines = () => {
         google.script.run
           .withSuccessHandler((liste) => {
-            const selectRoutine = document.getElementById('selectRoutine');
-            selectRoutine.innerHTML = '<option disabled selected>-- Choisir --</option>';
+            listeRoutinesGlobal = liste; // Stockage en mémoire
+            const select = document.getElementById('selectRoutine');
+            select.innerHTML = '<option disabled selected>-- Choisir --</option>';
             
-            liste.forEach(routine => {
+            liste.forEach(item => {
                const opt = document.createElement('option');
-               opt.value = routine; 
-               opt.text = routine;
-               selectRoutine.add(opt);
+               opt.value = item.nom; 
+               opt.text = item.nom;
+               select.add(opt);
             });
-            
-            // Une fois chargé, on lance le premier rapport
             chargerRapport();
           })
           .withFailureHandler(afficherErreur)
-          .recupererListeRoutines(); // Nom de la fonction corrigée
+          .recupererListeRoutines(); 
       };
 
-      /**
-       * Sauvegarde une routine
-       */
-      const gererSauvegarde = () => {
-        const val = document.getElementById('selectRoutine').value;
-        if (val.startsWith('--')) return;
+      // --- LOGIQUE SAISIE ---
+
+      const mettreAJourInterfaceSaisie = () => {
+        const nomSelectionne = document.getElementById('selectRoutine').value;
+        const routineTrouvee = listeRoutinesGlobal.find(r => r.nom === nomSelectionne);
+        const divQuantite = document.getElementById('divQuantite');
         
+        // Si la routine a une "unite" définie en Config, on affiche le champ
+        if (routineTrouvee && routineTrouvee.unite) {
+          divQuantite.classList.remove('d-none');
+          document.getElementById('lblQuantite').innerText = `Quantité (${routineTrouvee.unite})`;
+          document.getElementById('addonUnite').innerText = routineTrouvee.unite;
+          document.getElementById('inputValeur').focus();
+        } else {
+          divQuantite.classList.add('d-none');
+        }
+        // Reset valeur à chaque changement pour éviter les erreurs
+        document.getElementById('inputValeur').value = ''; 
+      };
+
+      const gererSauvegarde = () => {
+        const nom = document.getElementById('selectRoutine').value;
+        const date = document.getElementById('dateSaisie').value;
+        const valeur = document.getElementById('inputValeur').value; 
+
+        if (nom.startsWith('--')) return afficherMessage("Veuillez choisir une routine", "warning");
+        if (!date) return afficherMessage("Date invalide", "warning");
+        
+        // Validation : Si le champ est visible, il doit être rempli
+        const divVisible = !document.getElementById('divQuantite').classList.contains('d-none');
+        if (divVisible && !valeur) return afficherMessage("Veuillez saisir une quantité", "warning");
+
         basculerInterfaceChargement(true);
         
         google.script.run
-          .withSuccessHandler((message) => {
-            basculerInterfaceChargement(false); 
-            afficherMessage(message, 'success');
-            chargerRapport(); // Rafraichissement auto
+          .withSuccessHandler((msg) => {
+             basculerInterfaceChargement(false);
+             afficherMessage(msg, 'success');
+             chargerRapport();
+             // On vide le champ valeur pour la prochaine saisie
+             document.getElementById('inputValeur').value = '';
           })
           .withFailureHandler((err) => {
-            basculerInterfaceChargement(false);
-            afficherErreur(err);
+             basculerInterfaceChargement(false); 
+             afficherErreur(err);
           })
-          .sauvegarderRoutine(val); // Nom de la fonction corrigée
+          .sauvegarderRoutine(nom, date, valeur); // 3 arguments envoyés
       };
 
-      /**
-       * Supprime la dernière entrée
-       */
       const gererAnnulation = () => {
-        if (!confirm("Voulez-vous vraiment supprimer la dernière saisie ?")) return;
-        
+        if (!confirm("Supprimer la dernière entrée ?")) return;
         basculerInterfaceChargement(true);
-        
         google.script.run
-          .withSuccessHandler((message) => {
+          .withSuccessHandler((msg) => {
             basculerInterfaceChargement(false);
-            afficherMessage(message, 'danger');
+            afficherMessage(msg, 'danger');
             chargerRapport(); 
           })
-          .withFailureHandler((err) => {
-            basculerInterfaceChargement(false);
-            afficherErreur(err);
+          .withFailureHandler(err => {
+            basculerInterfaceChargement(false); afficherErreur(err);
           })
-          .supprimerDerniereEntree(); // Nom de la fonction corrigée
+          .supprimerDerniereEntree(); 
       };
 
-      /**
-       * Charge les données du tableau de bord
-       */
+      // --- LOGIQUE DASHBOARD ---
+
       const chargerRapport = () => {
         const annee = document.getElementById('selectAnnee').value;
         const mois = document.getElementById('selectMois').value;
-        
-        // Effet visuel de chargement sur le tableau
         document.querySelector('tbody').style.opacity = '0.5';
         
         google.script.run
           .withSuccessHandler(rendreTableauDeBord)
           .withFailureHandler(afficherErreur)
-          .genererRapportMensuel(Number(annee), Number(mois)); // Nom de la fonction corrigée
+          .genererRapportMensuel(Number(annee), Number(mois));
       };
 
-      /**
-       * Orchestre l'affichage (Tableau + Graphiques)
-       */
       const rendreTableauDeBord = (rapport) => {
-        document.querySelector('tbody').style.opacity = '1';
-        genererMatriceHTML(rapport);
-        genererGraphiques(rapport);
+         document.querySelector('tbody').style.opacity = '1';
+         
+         // 1. Génération de la Heatmap
+         genererMatriceHTML(rapport);
+         
+         // 2. Adaptation des données pour les graphiques (Mode binaire : Fait / Pas fait)
+         // Le backend renvoie maintenant un objet {jour: valeur}
+         // Les graphiques attendent un tableau de jours [1, 5, 10]
+         const rapportPourGraphe = {
+           routines: rapport.routines,
+           statsJournalieres: rapport.statsJournalieres,
+           joursDansLeMois: rapport.joursDansLeMois,
+           donnees: {} 
+         };
+         
+         // Conversion pour compatibilité Chart.js
+         rapport.routines.forEach(r => {
+            const donneesRoutine = rapport.donnees[r.nom] || {};
+            // On prend juste les clés (les jours où il y a eu activité)
+            const joursActifs = Object.keys(donneesRoutine).map(Number);
+            rapportPourGraphe.donnees[r.nom] = joursActifs;
+         });
+         
+         genererGraphiques(rapportPourGraphe);
       };
 
-      /**
-       * Génère le tableau de présence (Matrice)
-       */
       const genererMatriceHTML = (rapport) => {
-        const thead = document.querySelector('#matrixTable thead');
         const tbody = document.querySelector('#matrixTable tbody');
+        const thead = document.querySelector('#matrixTable thead');
+        tbody.innerHTML = ''; 
         thead.innerHTML = '';
-        tbody.innerHTML = '';
         
+        // En-têtes (Jours)
+        const trHead = document.createElement('tr');
+        trHead.innerHTML = '<th class="routine-col">Routine</th>';
         const annee = parseInt(document.getElementById('selectAnnee').value);
         const mois = parseInt(document.getElementById('selectMois').value);
-        const nomsJours = ['DIM', 'LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM']; 
+        const joursSemaine = ['DIM','LUN','MAR','MER','JEU','VEN','SAM'];
 
-        // 1. Création de l'en-tête (Dates)
-        const trHead = document.createElement('tr');
-        trHead.innerHTML = '<th class="routine-col" style="vertical-align:bottom;">Routine</th>';
-        
-        for (let j = 1; j <= rapport.joursDansLeMois; j++) { // Utilisation de la nouvelle clé JSON
-          const dateObj = new Date(annee, mois - 1, j);
-          const indexJour = dateObj.getDay();
-          const strJour = nomsJours[indexJour];
-          
-          const estWeekEnd = (indexJour === 0 || indexJour === 6);
-          const classeCss = estWeekEnd ? 'weekend-header' : '';
-          
-          trHead.innerHTML += `
-            <th class="${classeCss}">
-              <span class="day-name">${strJour}</span>
-              <span class="day-num">${j}</span>
-            </th>`;
+        for (let j = 1; j <= rapport.joursDansLeMois; j++) {
+           const d = new Date(annee, mois-1, j);
+           const isWE = (d.getDay()===0 || d.getDay()===6);
+           trHead.innerHTML += `<th class="${isWE?'weekend-header':''}"><span class="day-num">${j}</span></th>`;
         }
         thead.appendChild(trHead);
 
-        // 2. Création du corps (Routines)
-        rapport.routines.forEach(routine => {
-          const tr = document.createElement('tr');
-          const tdNom = `<th class="routine-col">${routine}</th>`;
-          let cellules = '';
-          
-          // Récupération sécurisée des données (nouvelle clé 'donnees')
-          const joursValides = rapport.donnees[routine] || [];
-          
-          for (let j = 1; j <= rapport.joursDansLeMois; j++) {
-            const dateObj = new Date(annee, mois - 1, j);
-            const estWeekEnd = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
-            const classeFond = estWeekEnd ? 'weekend-col' : '';
+        // Corps
+        rapport.routines.forEach(item => {
+           const nom = item.nom;
+           const obj = item.objectif; 
+           const unite = item.unite;
+           const dataRoutine = rapport.donnees[nom] || {};
+           
+           // Affichage de l'objectif sous le nom
+           let infoSup = '';
+           if(unite) infoSup = `<span class="routine-meta">Obj: ${obj} ${unite}/j</span>`;
+           else if(obj > 0) infoSup = `<span class="routine-meta">Obj: ${obj} /mois</span>`;
+           
+           const tr = document.createElement('tr');
+           tr.innerHTML = `<th class="routine-col"><div>${nom}</div>${infoSup}</th>`;
+           
+           for (let j = 1; j <= rapport.joursDansLeMois; j++) {
+              const valeurJour = dataRoutine[j]; // Valeur (ex: 10) ou undefined
+              const d = new Date(annee, mois-1, j);
+              const isWE = (d.getDay()===0 || d.getDay()===6);
+              
+              let styleTd = isWE ? 'background-color:#f8f9fa;' : '';
+              let contenu = '';
 
-            // Si le jour J est présent dans le tableau des jours validés
-            if (joursValides.includes(j)) {
-               cellules += `<td class="${classeFond}"><span class="check-done">●</span></td>`;
-            } else {
-               cellules += `<td class="${classeFond}"></td>`;
-            }
-          }
-          tr.innerHTML = tdNom + cellules;
-          tbody.appendChild(tr);
+              if (valeurJour !== undefined) {
+                 if (unite) {
+                    // --- MODE QUANTITATIF (HEATMAP) ---
+                    // Calcul opacité : on sature à 1 si dépasse l'objectif
+                    const ratio = obj > 0 ? Math.min(valeurJour / obj, 1) : 1;
+                    // Opacité min 0.25 pour rester lisible même si petit score
+                    const alpha = Math.max(ratio, 0.25);
+                    
+                    // Vert : rgba(46, 204, 113, alpha)
+                    styleTd = `background-color: rgba(46, 204, 113, ${alpha});`;
+                    contenu = `<span class="cell-value" style="color:${alpha > 0.6 ? '#fff' : '#1e5f35'}">${valeurJour}</span>`;
+                 } else {
+                    // --- MODE STANDARD (CHECK) ---
+                    contenu = `<span class="check-done">●</span>`;
+                 }
+              }
+              
+              tr.innerHTML += `<td style="${styleTd}">${contenu}</td>`;
+           }
+           tbody.appendChild(tr);
         });
       };
 
-      /**
-       * Génère les graphiques Chart.js
-       */
       const genererGraphiques = (rapport) => {
-        const labels = rapport.routines;
-        // Nouvelle clé 'donnees'
-        const dataPie = labels.map(r => (rapport.donnees[r] || []).length);
+        // Adaptation simple : on affiche des graphes basés sur la fréquence (nombre de fois)
+        const labels = rapport.routines.map(r => r.nom);
+        const dataPie = labels.map(nom => (rapport.donnees[nom] || []).length);
         
         const joursLabels = [];
         const dataLine = [];
         
-        // Nouvelle clé 'joursDansLeMois' et 'statsJournalieres'
         for (let i = 1; i <= rapport.joursDansLeMois; i++) {
           joursLabels.push(i);
           dataLine.push(rapport.statsJournalieres[i] || 0);
@@ -355,28 +412,24 @@
         });
       };
 
-      // --- Utilitaires UI ---
-
-      const basculerInterfaceChargement = (enChargement) => {
-        const btnValider = document.getElementById('btnValider');
-        const btnAnnuler = document.getElementById('btnAnnuler');
-        
-        btnValider.disabled = enChargement;
-        btnAnnuler.disabled = enChargement;
-        btnValider.innerText = enChargement ? "Traitement..." : "Valider";
+      // --- HELPERS ---
+      const basculerInterfaceChargement = (etat) => {
+        const btn = document.getElementById('btnValider');
+        btn.disabled = etat;
+        btn.innerText = etat ? "Traitement..." : "Valider";
       };
 
       const afficherMessage = (texte, type) => {
-        const boite = document.getElementById('msgBox');
-        boite.className = `alert mt-3 alert-${type}`;
-        boite.innerText = texte;
-        boite.classList.remove('d-none');
-        setTimeout(() => boite.classList.add('d-none'), 3000);
+        const box = document.getElementById('msgBox');
+        box.className = `alert mt-3 alert-${type}`;
+        box.innerText = texte;
+        box.classList.remove('d-none');
+        setTimeout(() => box.classList.add('d-none'), 3000);
       };
       
       const afficherErreur = (err) => {
         console.error(err);
-        afficherMessage("Une erreur est survenue : " + err.message, 'danger');
+        afficherMessage("Erreur: " + err.message, 'danger');
       };
     </script>
     
