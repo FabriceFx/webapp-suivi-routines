@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <title>App Suivi Routines</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+      body { background-color: #f4f6f9; padding-top: 20px; font-family: 'Segoe UI', sans-serif; }
+      .nav-pills .nav-link.active { background-color: #4a90e2; }
+      .card { border: none; border-radius: 12px; shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px;}
+      
+      /* Style du grand tableau */
+      .table-responsive { overflow-x: auto; }
+      .matrix-table th, .matrix-table td { 
+        text-align: center; 
+        min-width: 38px;
+        font-size: 0.8rem; 
+        vertical-align: middle;
+        padding: 5px 2px !important;
+      }
+      .matrix-table th.routine-col { 
+        min-width: 120px; 
+        text-align: left; 
+        position: sticky; 
+        left: 0; 
+        background: #fff; 
+        z-index: 2;
+        border-right: 2px solid #eee;
+        padding-left: 10px !important;
+      }
+      
+      /* Styles Calendrier */
+      .day-name { display: block; font-size: 0.65rem; text-transform: uppercase; color: #888; font-weight: normal;}
+      .day-num { display: block; font-size: 0.9rem; font-weight: bold; }
+      
+      /* Indicateurs visuels */
+      .weekend-col { background-color: #f8f9fa; }
+      .weekend-header { color: #e74c3c; } 
+      .check-done { color: #2ecc71; font-weight: bold; font-size: 1.1rem; }
+      
+      .chart-box { height: 250px; position: relative; }
+    </style>
+  </head>
+  <body>
+    <div class="container" style="max-width: 900px;"> 
+      
+      <ul class="nav nav-pills nav-fill mb-4 bg-white rounded shadow-sm p-1">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#saisie">📝 Saisie</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#suivi">📊 Tableau de bord</button></li>
+      </ul>
+
+      <div class="tab-content">
+        
+        <div class="tab-pane fade show active" id="saisie">
+          <div class="card p-4" style="max-width: 500px; margin: auto;">
+            <h4 class="text-center mb-4 text-primary">Loguer une activité</h4>
+            <select id="selectRoutine" class="form-select form-select-lg mb-3">
+              <option selected disabled>Chargement...</option>
+            </select>
+            <button class="btn btn-primary btn-lg w-100 mb-2" id="btnValider">Valider</button>
+            <button class="btn btn-outline-danger btn-sm w-100" id="btnAnnuler">Annuler la dernière</button>
+            <div id="msgBox" class="alert mt-3 d-none text-center"></div>
+          </div>
+        </div>
+
+        <div class="tab-pane fade" id="suivi">
+          
+          <div class="card p-3 mb-3">
+            <div class="row g-2">
+              <div class="col-4">
+                <select id="selectAnnee" class="form-select"></select>
+              </div>
+              <div class="col-8">
+                <select id="selectMois" class="form-select">
+                  <option value="1">Janvier</option><option value="2">Février</option><option value="3">Mars</option>
+                  <option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option>
+                  <option value="7">Juillet</option><option value="8">Août</option><option value="9">Septembre</option>
+                  <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">Décembre</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card p-3">
+                <h6 class="text-center text-muted">Répartition par Routine</h6>
+                <div class="chart-box"><canvas id="pieChart"></canvas></div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card p-3">
+                <h6 class="text-center text-muted">Constance Quotidienne</h6>
+                <div class="chart-box"><canvas id="lineChart"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-3 mt-3">
+            <h5 class="mb-3">Détail journalier</h5>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm matrix-table" id="matrixTable">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Stockage global des instances de graphiques pour pouvoir les détruire/recréer
+      const charts = { pie: null, line: null }; 
+
+      // Initialisation au chargement de la page
+      window.addEventListener('load', () => {
+        initialiserSelecteurs();
+        chargerListeRoutines();
+        
+        // Écouteurs d'événements (Event Listeners)
+        document.getElementById('btnValider').addEventListener('click', gererSauvegarde);
+        document.getElementById('btnAnnuler').addEventListener('click', gererAnnulation);
+        document.getElementById('selectAnnee').addEventListener('change', chargerRapport);
+        document.getElementById('selectMois').addEventListener('change', chargerRapport);
+      });
+
+      /**
+       * Initialise les listes déroulantes Année et Mois
+       */
+      const initialiserSelecteurs = () => {
+        const selectAnnee = document.getElementById('selectAnnee');
+        const anneeActuelle = new Date().getFullYear();
+        
+        // Plage : Année actuelle - 1 à Année actuelle + 2
+        for (let i = anneeActuelle - 1; i <= anneeActuelle + 2; i++) {
+          const opt = document.createElement('option');
+          opt.value = i; 
+          opt.text = i;
+          if (i === anneeActuelle) opt.selected = true;
+          selectAnnee.add(opt);
+        }
+        
+        // Mois actuel par défaut
+        document.getElementById('selectMois').value = new Date().getMonth() + 1;
+      };
+
+      /**
+       * Appelle le serveur pour récupérer la liste des routines (Config)
+       */
+      const chargerListeRoutines = () => {
+        google.script.run
+          .withSuccessHandler((liste) => {
+            const selectRoutine = document.getElementById('selectRoutine');
+            selectRoutine.innerHTML = '<option disabled selected>-- Choisir --</option>';
+            
+            liste.forEach(routine => {
+               const opt = document.createElement('option');
+               opt.value = routine; 
+               opt.text = routine;
+               selectRoutine.add(opt);
+            });
+            
+            // Une fois chargé, on lance le premier rapport
+            chargerRapport();
+          })
+          .withFailureHandler(afficherErreur)
+          .recupererListeRoutines(); // Nom de la fonction corrigée
+      };
+
+      /**
+       * Sauvegarde une routine
+       */
+      const gererSauvegarde = () => {
+        const val = document.getElementById('selectRoutine').value;
+        if (val.startsWith('--')) return;
+        
+        basculerInterfaceChargement(true);
+        
+        google.script.run
+          .withSuccessHandler((message) => {
+            basculerInterfaceChargement(false); 
+            afficherMessage(message, 'success');
+            chargerRapport(); // Rafraichissement auto
+          })
+          .withFailureHandler((err) => {
+            basculerInterfaceChargement(false);
+            afficherErreur(err);
+          })
+          .sauvegarderRoutine(val); // Nom de la fonction corrigée
+      };
+
+      /**
+       * Supprime la dernière entrée
+       */
+      const gererAnnulation = () => {
+        if (!confirm("Voulez-vous vraiment supprimer la dernière saisie ?")) return;
+        
+        basculerInterfaceChargement(true);
+        
+        google.script.run
+          .withSuccessHandler((message) => {
+            basculerInterfaceChargement(false);
+            afficherMessage(message, 'danger');
+            chargerRapport(); 
+          })
+          .withFailureHandler((err) => {
+            basculerInterfaceChargement(false);
+            afficherErreur(err);
+          })
+          .supprimerDerniereEntree(); // Nom de la fonction corrigée
+      };
+
+      /**
+       * Charge les données du tableau de bord
+       */
+      const chargerRapport = () => {
+        const annee = document.getElementById('selectAnnee').value;
+        const mois = document.getElementById('selectMois').value;
+        
+        // Effet visuel de chargement sur le tableau
+        document.querySelector('tbody').style.opacity = '0.5';
+        
+        google.script.run
+          .withSuccessHandler(rendreTableauDeBord)
+          .withFailureHandler(afficherErreur)
+          .genererRapportMensuel(Number(annee), Number(mois)); // Nom de la fonction corrigée
+      };
+
+      /**
+       * Orchestre l'affichage (Tableau + Graphiques)
+       */
+      const rendreTableauDeBord = (rapport) => {
+        document.querySelector('tbody').style.opacity = '1';
+        genererMatriceHTML(rapport);
+        genererGraphiques(rapport);
+      };
+
+      /**
+       * Génère le tableau de présence (Matrice)
+       */
+      const genererMatriceHTML = (rapport) => {
+        const thead = document.querySelector('#matrixTable thead');
+        const tbody = document.querySelector('#matrixTable tbody');
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+        
+        const annee = parseInt(document.getElementById('selectAnnee').value);
+        const mois = parseInt(document.getElementById('selectMois').value);
+        const nomsJours = ['DIM', 'LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM']; 
+
+        // 1. Création de l'en-tête (Dates)
+        const trHead = document.createElement('tr');
+        trHead.innerHTML = '<th class="routine-col" style="vertical-align:bottom;">Routine</th>';
+        
+        for (let j = 1; j <= rapport.joursDansLeMois; j++) { // Utilisation de la nouvelle clé JSON
+          const dateObj = new Date(annee, mois - 1, j);
+          const indexJour = dateObj.getDay();
+          const strJour = nomsJours[indexJour];
+          
+          const estWeekEnd = (indexJour === 0 || indexJour === 6);
+          const classeCss = estWeekEnd ? 'weekend-header' : '';
+          
+          trHead.innerHTML += `
+            <th class="${classeCss}">
+              <span class="day-name">${strJour}</span>
+              <span class="day-num">${j}</span>
+            </th>`;
+        }
+        thead.appendChild(trHead);
+
+        // 2. Création du corps (Routines)
+        rapport.routines.forEach(routine => {
+          const tr = document.createElement('tr');
+          const tdNom = `<th class="routine-col">${routine}</th>`;
+          let cellules = '';
+          
+          // Récupération sécurisée des données (nouvelle clé 'donnees')
+          const joursValides = rapport.donnees[routine] || [];
+          
+          for (let j = 1; j <= rapport.joursDansLeMois; j++) {
+            const dateObj = new Date(annee, mois - 1, j);
+            const estWeekEnd = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
+            const classeFond = estWeekEnd ? 'weekend-col' : '';
+
+            // Si le jour J est présent dans le tableau des jours validés
+            if (joursValides.includes(j)) {
+               cellules += `<td class="${classeFond}"><span class="check-done">●</span></td>`;
+            } else {
+               cellules += `<td class="${classeFond}"></td>`;
+            }
+          }
+          tr.innerHTML = tdNom + cellules;
+          tbody.appendChild(tr);
+        });
+      };
+
+      /**
+       * Génère les graphiques Chart.js
+       */
+      const genererGraphiques = (rapport) => {
+        const labels = rapport.routines;
+        // Nouvelle clé 'donnees'
+        const dataPie = labels.map(r => (rapport.donnees[r] || []).length);
+        
+        const joursLabels = [];
+        const dataLine = [];
+        
+        // Nouvelle clé 'joursDansLeMois' et 'statsJournalieres'
+        for (let i = 1; i <= rapport.joursDansLeMois; i++) {
+          joursLabels.push(i);
+          dataLine.push(rapport.statsJournalieres[i] || 0);
+        }
+
+        // --- Pie Chart ---
+        if (charts.pie) charts.pie.destroy();
+        charts.pie = new Chart(document.getElementById('pieChart'), {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: dataPie,
+              backgroundColor: ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'],
+              borderWidth: 1
+            }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
+        });
+
+        // --- Line Chart ---
+        if (charts.line) charts.line.destroy();
+        charts.line = new Chart(document.getElementById('lineChart'), {
+          type: 'line',
+          data: {
+            labels: joursLabels,
+            datasets: [{
+              label: 'Actions totales',
+              data: dataLine,
+              borderColor: '#34495e',
+              backgroundColor: 'rgba(52, 73, 94, 0.1)',
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } },
+            plugins: { legend: { display: false } }
+          }
+        });
+      };
+
+      // --- Utilitaires UI ---
+
+      const basculerInterfaceChargement = (enChargement) => {
+        const btnValider = document.getElementById('btnValider');
+        const btnAnnuler = document.getElementById('btnAnnuler');
+        
+        btnValider.disabled = enChargement;
+        btnAnnuler.disabled = enChargement;
+        btnValider.innerText = enChargement ? "Traitement..." : "Valider";
+      };
+
+      const afficherMessage = (texte, type) => {
+        const boite = document.getElementById('msgBox');
+        boite.className = `alert mt-3 alert-${type}`;
+        boite.innerText = texte;
+        boite.classList.remove('d-none');
+        setTimeout(() => boite.classList.add('d-none'), 3000);
+      };
+      
+      const afficherErreur = (err) => {
+        console.error(err);
+        afficherMessage("Une erreur est survenue : " + err.message, 'danger');
+      };
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>
