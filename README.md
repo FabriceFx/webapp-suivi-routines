@@ -5,47 +5,55 @@
 ![Runtime](https://img.shields.io/badge/Google%20Apps%20Script-V8-green)
 ![Author](https://img.shields.io/badge/Auteur-Fabrice%20Faucheux-orange)
 
-Une solution complète et autonome ("Self-Hosted") de suivi d'activités et d'habitudes, propulsée par **Google Apps Script**. Cette application Web permet de logger des routines quotidiennes depuis un mobile ou un ordinateur, et de visualiser la constance via des tableaux de bord interactifs.
+Une solution complète et autonome ("Self-Hosted") de suivi d'activités et d'habitudes, propulsée par **Google Apps Script**. Cette application Web permet de logger des routines quotidiennes (avec ou sans quantités) depuis un mobile ou un ordinateur, et de visualiser la constance via des tableaux de bord interactifs.
 
-## 🚀 Fonctionnalités
+## 🚀 Fonctionnalités clés
 
-* **Saisie intuitive** : Interface épurée pour enregistrer une routine en un clic.
-* **Historique** : Possibilité d'annuler la dernière saisie en cas d'erreur.
-* **Tableau de bord visuel** :
-    * **Matrice de présence** : Vue calendaire mensuelle (style GitHub contributions).
-    * **Graphiques** : Répartition par type (Donut) et évolution de la productivité (Ligne) via Chart.js.
-* **Données** : Stockage sécurisé et accessible dans un Google Sheet personnel.
+* **Saisie hybride** : Supporte les routines simples (Oui/Non) et quantitatives (ex: "10 km", "30 mins").
+* **Historique intelligent** : Possibilité d'annuler la dernière saisie et gestion des dates rétroactives.
+* **Tableau de bord Heatmap** : Visualisation matricielle mensuelle avec intensité de couleur selon l'atteinte des objectifs.
+* **Analyses graphiques** : Répartition (Camembert) et Constance (Ligne) générées dynamiquement.
 
-## 🛠️ Stack technique
+## 🛠️ Architecture & stack technique
 
-* **Backend** : Google Apps Script (Moteur V8, ES6+).
-* **Frontend** : HTML5, CSS3 (Bootstrap 5).
-* **Visualisation** : Chart.js.
-* **Base de données** : Google Sheets.
+Le projet respecte désormais une architecture **MVC** (Modèle-Vue-Contrôleur) séparée pour une meilleure maintenabilité :
 
-## 📋 Prérequis & configuration Google Sheets
+* **`Code.gs` (Backend)** : Logique serveur Apps Script, interaction avec Google Sheets et routage HTML.
+* **`Index.html` (Structure)** : Squelette HTML5 principal utilisant Bootstrap 5.
+* **`Style.html` (Design)** : Feuilles de styles CSS isolées pour l'interface.
+* **`JavaScript.html` (Logique Client)** : Gestion du DOM, des événements et des graphiques Chart.js.
 
-Pour que l'application fonctionne, votre fichier Google Sheets doit impérativement contenir les deux onglets suivants :
+## 📋 Prérequis Google Sheets
+
+Votre feuille de calcul doit contenir **exactement** ces deux onglets :
 
 ### 1. Onglet `Config`
-Utilisé pour définir la liste de vos routines.
-* **Ligne 1** : En-tête (ex: `Nom de la Routine`).
-* **Colonne A (A2:A)** : Liste des routines (ex: `Méditation`, `Sport`, `Lecture`).
+Définit vos habitudes et objectifs.
+* **Ligne 1 (En-têtes)** : `Nom` | `Objectif` | `Unité`
+* **Colonnes** :
+    * **A** : Nom de la routine (ex: `Lecture`).
+    * **B** : Objectif chiffré (ex: `30` pour 30 minutes). *Optionnel*.
+    * **C** : Unité d'affichage (ex: `min`, `km`). *Si vide, mode case à cocher*.
 
 ### 2. Onglet `Logs`
-Utilisé pour stocker l'historique.
-* **Ligne 1** : En-têtes (ex: `Date`, `Routine`).
-* **Données** : L'application écrira automatiquement dans les colonnes A (Date) et B (Nom).
+Base de données brute. Ne pas modifier manuellement sauf si nécessaire.
+* **Ligne 1 (En-têtes)** : `Date` | `Routine` | `Valeur`
+* **Logique** : Le script ajoute les nouvelles entrées à la suite.
 
-## ⚙️ Installation
+## ⚙️ Installation manuelle
 
 1.  Ouvrez votre Google Sheet.
 2.  Allez dans **Extensions** > **Apps Script**.
-3.  Copiez le contenu du fichier `Code.gs` dans l'éditeur de script (fichier `.gs`).
-4.  Créez un fichier HTML nommé `Index.html` et copiez-y le code frontend.
+3.  **Backend** : Copiez le contenu fourni pour `Code.gs` dans l'éditeur.
+4.  **Frontend** : Créez 3 fichiers HTML distincts (via le bouton `+`) :
+    * Nommez le premier `Index` et collez le code HTML de structure.
+    * Nommez le second `Style` et collez le code CSS.
+    * Nommez le troisième `JavaScript` et collez le code JS client.
 5.  Cliquez sur **Déployer** > **Nouveau déploiement**.
-6.  Sélectionnez le type **Application Web**.
+6.  Choisissez le type **Application Web**.
     * *Exécuter en tant que* : `Moi`.
-    * *Qui a accès* : `Moi uniquement` (ou autre selon besoin).
-7.  Validez et récupérez l'URL de votre Web App.
+    * *Qui a accès* : `Moi uniquement` (pour un usage personnel).
+7.  Validez et utilisez l'URL fournie.
 
+---
+**License** : MIT
