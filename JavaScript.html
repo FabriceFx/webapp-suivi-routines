@@ -1,0 +1,280 @@
+<script>
+  // --- VARIABLES GLOBALES ---
+  let listeRoutinesGlobal = []; 
+  const charts = { pie: null, line: null }; 
+
+  // --- INITIALISATION ---
+  window.addEventListener('load', () => {
+    initialiserSelecteurs();
+    chargerListeRoutines();
+    
+    // Date par défaut : Aujourd'hui (Format YYYY-MM-DD)
+    document.getElementById('dateSaisie').value = new Date().toISOString().split('T')[0];
+    
+    // Listeners
+    document.getElementById('btnValider').addEventListener('click', gererSauvegarde);
+    document.getElementById('btnAnnuler').addEventListener('click', gererAnnulation);
+    document.getElementById('selectAnnee').addEventListener('change', chargerRapport);
+    document.getElementById('selectMois').addEventListener('change', chargerRapport);
+    
+    // Détection changement routine pour afficher l'input quantité
+    document.getElementById('selectRoutine').addEventListener('change', mettreAJourInterfaceSaisie);
+  });
+
+  // --- UI & SETUP ---
+
+  const initialiserSelecteurs = () => {
+    const selectAnnee = document.getElementById('selectAnnee');
+    const anneeActuelle = new Date().getFullYear();
+    for (let i = anneeActuelle - 1; i <= anneeActuelle + 2; i++) {
+      const opt = document.createElement('option');
+      opt.value = i; opt.text = i;
+      if (i === anneeActuelle) opt.selected = true;
+      selectAnnee.add(opt);
+    }
+    document.getElementById('selectMois').value = new Date().getMonth() + 1;
+  };
+
+  const chargerListeRoutines = () => {
+    google.script.run
+      .withSuccessHandler((liste) => {
+        listeRoutinesGlobal = liste;
+        const select = document.getElementById('selectRoutine');
+        select.innerHTML = '<option disabled selected>-- Choisir --</option>';
+        
+        liste.forEach(item => {
+           const opt = document.createElement('option');
+           opt.value = item.nom; 
+           opt.text = item.nom;
+           select.add(opt);
+        });
+        chargerRapport();
+      })
+      .withFailureHandler(afficherErreur)
+      .recupererListeRoutines(); 
+  };
+
+  const mettreAJourInterfaceSaisie = () => {
+    const nomSelectionne = document.getElementById('selectRoutine').value;
+    const routineTrouvee = listeRoutinesGlobal.find(r => r.nom === nomSelectionne);
+    const divQuantite = document.getElementById('divQuantite');
+    
+    if (routineTrouvee && routineTrouvee.unite) {
+      divQuantite.classList.remove('d-none');
+      document.getElementById('lblQuantite').innerText = `Quantité (${routineTrouvee.unite})`;
+      document.getElementById('addonUnite').innerText = routineTrouvee.unite;
+      document.getElementById('inputValeur').focus();
+    } else {
+      divQuantite.classList.add('d-none');
+    }
+    document.getElementById('inputValeur').value = ''; 
+  };
+
+  // --- ACTIONS UTILISATEUR ---
+
+  const gererSauvegarde = () => {
+    const nom = document.getElementById('selectRoutine').value;
+    const date = document.getElementById('dateSaisie').value;
+    const valeur = document.getElementById('inputValeur').value; 
+
+    if (nom.startsWith('--')) return afficherMessage("Veuillez choisir une routine", "warning");
+    if (!date) return afficherMessage("Date invalide", "warning");
+    
+    const divVisible = !document.getElementById('divQuantite').classList.contains('d-none');
+    if (divVisible && !valeur) return afficherMessage("Veuillez saisir une quantité", "warning");
+
+    basculerInterfaceChargement(true);
+    
+    google.script.run
+      .withSuccessHandler((msg) => {
+         basculerInterfaceChargement(false);
+         afficherMessage(msg, 'success');
+         chargerRapport();
+         document.getElementById('inputValeur').value = '';
+      })
+      .withFailureHandler((err) => {
+         basculerInterfaceChargement(false); 
+         afficherErreur(err);
+      })
+      .sauvegarderRoutine(nom, date, valeur);
+  };
+
+  const gererAnnulation = () => {
+    if (!confirm("Supprimer la dernière entrée ?")) return;
+    basculerInterfaceChargement(true);
+    google.script.run
+      .withSuccessHandler((msg) => {
+        basculerInterfaceChargement(false);
+        afficherMessage(msg, 'danger');
+        chargerRapport(); 
+      })
+      .withFailureHandler(err => {
+        basculerInterfaceChargement(false); afficherErreur(err);
+      })
+      .supprimerDerniereEntree(); 
+  };
+
+  // --- DASHBOARD & VIZ ---
+
+  const chargerRapport = () => {
+    const annee = document.getElementById('selectAnnee').value;
+    const mois = document.getElementById('selectMois').value;
+    document.querySelector('tbody').style.opacity = '0.5';
+    
+    google.script.run
+      .withSuccessHandler(rendreTableauDeBord)
+      .withFailureHandler(afficherErreur)
+      .genererRapportMensuel(Number(annee), Number(mois));
+  };
+
+  const rendreTableauDeBord = (rapport) => {
+     document.querySelector('tbody').style.opacity = '1';
+     genererMatriceHTML(rapport);
+     
+     // Prépa données graphiques
+     const rapportPourGraphe = {
+       routines: rapport.routines,
+       statsJournalieres: rapport.statsJournalieres,
+       joursDansLeMois: rapport.joursDansLeMois,
+       donnees: {} 
+     };
+     
+     rapport.routines.forEach(r => {
+        const donneesRoutine = rapport.donnees[r.nom] || {};
+        const joursActifs = Object.keys(donneesRoutine).map(Number);
+        rapportPourGraphe.donnees[r.nom] = joursActifs;
+     });
+     
+     genererGraphiques(rapportPourGraphe);
+  };
+
+  const genererMatriceHTML = (rapport) => {
+    const tbody = document.querySelector('#matrixTable tbody');
+    const thead = document.querySelector('#matrixTable thead');
+    tbody.innerHTML = ''; 
+    thead.innerHTML = '';
+    
+    // En-têtes Jours
+    const trHead = document.createElement('tr');
+    trHead.innerHTML = '<th class="routine-col">Routine</th>';
+    const annee = parseInt(document.getElementById('selectAnnee').value);
+    const mois = parseInt(document.getElementById('selectMois').value);
+
+    for (let j = 1; j <= rapport.joursDansLeMois; j++) {
+       const d = new Date(annee, mois-1, j);
+       const isWE = (d.getDay()===0 || d.getDay()===6);
+       trHead.innerHTML += `<th class="${isWE?'weekend-header':''}"><span class="day-num">${j}</span></th>`;
+    }
+    thead.appendChild(trHead);
+
+    // Corps Heatmap
+    rapport.routines.forEach(item => {
+       const nom = item.nom;
+       const obj = item.objectif; 
+       const unite = item.unite;
+       const dataRoutine = rapport.donnees[nom] || {};
+       
+       let infoSup = '';
+       if(unite) infoSup = `<span class="routine-meta">Obj: ${obj} ${unite}/j</span>`;
+       else if(obj > 0) infoSup = `<span class="routine-meta">Obj: ${obj} /mois</span>`;
+       
+       const tr = document.createElement('tr');
+       tr.innerHTML = `<th class="routine-col"><div>${nom}</div>${infoSup}</th>`;
+       
+       for (let j = 1; j <= rapport.joursDansLeMois; j++) {
+          const valeurJour = dataRoutine[j];
+          const d = new Date(annee, mois-1, j);
+          const isWE = (d.getDay()===0 || d.getDay()===6);
+          
+          let styleTd = isWE ? 'background-color:#f8f9fa;' : '';
+          let contenu = '';
+
+          if (valeurJour !== undefined) {
+             if (unite) {
+                // Heatmap logic
+                const ratio = obj > 0 ? Math.min(valeurJour / obj, 1) : 1;
+                const alpha = Math.max(ratio, 0.25);
+                styleTd = `background-color: rgba(46, 204, 113, ${alpha});`;
+                contenu = `<span class="cell-value" style="color:${alpha > 0.6 ? '#fff' : '#1e5f35'}">${valeurJour}</span>`;
+             } else {
+                // Check logic
+                contenu = `<span class="check-done">●</span>`;
+             }
+          }
+          tr.innerHTML += `<td style="${styleTd}">${contenu}</td>`;
+       }
+       tbody.appendChild(tr);
+    });
+  };
+
+  const genererGraphiques = (rapport) => {
+    const labels = rapport.routines.map(r => r.nom);
+    const dataPie = labels.map(nom => (rapport.donnees[nom] || []).length);
+    
+    const joursLabels = [];
+    const dataLine = [];
+    
+    for (let i = 1; i <= rapport.joursDansLeMois; i++) {
+      joursLabels.push(i);
+      dataLine.push(rapport.statsJournalieres[i] || 0);
+    }
+
+    // Pie Chart
+    if (charts.pie) charts.pie.destroy();
+    charts.pie = new Chart(document.getElementById('pieChart'), {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: dataPie,
+          backgroundColor: ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'],
+          borderWidth: 1
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
+    });
+
+    // Line Chart
+    if (charts.line) charts.line.destroy();
+    charts.line = new Chart(document.getElementById('lineChart'), {
+      type: 'line',
+      data: {
+        labels: joursLabels,
+        datasets: [{
+          label: 'Actions totales',
+          data: dataLine,
+          borderColor: '#34495e',
+          backgroundColor: 'rgba(52, 73, 94, 0.1)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: { 
+        responsive: true, maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  };
+
+  // --- HELPERS ---
+
+  const basculerInterfaceChargement = (etat) => {
+    const btn = document.getElementById('btnValider');
+    btn.disabled = etat;
+    btn.innerText = etat ? "Traitement..." : "Valider";
+  };
+
+  const afficherMessage = (texte, type) => {
+    const box = document.getElementById('msgBox');
+    box.className = `alert mt-3 alert-${type}`;
+    box.innerText = texte;
+    box.classList.remove('d-none');
+    setTimeout(() => box.classList.add('d-none'), 3000);
+  };
+  
+  const afficherErreur = (err) => {
+    console.error(err);
+    afficherMessage("Erreur: " + err.message, 'danger');
+  };
+</script>
