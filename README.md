@@ -1,9 +1,15 @@
 # Webapp Suivi Routines
 
+
+[🇫🇷 Version Française](#-version-française) | [🇬🇧 English Version](#-english-version)
+
 ![License MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Google%20Apps%20Script-green)
 ![Runtime](https://img.shields.io/badge/Google%20Apps%20Script-V8-green)
 ![Author](https://img.shields.io/badge/Auteur-Fabrice%20Faucheux-orange)
+
+## 🇫🇷 Version Française
+
 
 Une solution complète et autonome ("Self-Hosted") de suivi d'activités et d'habitudes, propulsée par **Google Apps Script**. Cette application Web permet de logger des routines quotidiennes (avec ou sans quantités) depuis un mobile ou un ordinateur, et de visualiser la constance via des tableaux de bord interactifs.
 
@@ -54,3 +60,12 @@ Base de données brute. Ne pas modifier manuellement sauf si nécessaire.
     * *Exécuter en tant que* : `Moi`.
     * *Qui a accès* : `Moi uniquement` (pour un usage personnel).
 7.  Validez et utilisez l'URL fournie.
+
+
+---
+## 🇬🇧 English Version
+
+> English translation coming soon.
+
+---
+<p align="center"><a href="https://faucheux.bzh" target="_blank" style="color: inherit; text-decoration: none;">&lt;&gt; par Fabrice Faucheux</a></p>
